@@ -1,8 +1,5 @@
 import json 
-import os 
-import sys, getopt
 from datetime import datetime 
-import csv
 import pandas as pd
 
 def convert(input_file,output_file=None, options={}):
@@ -68,21 +65,11 @@ def convert(input_file,output_file=None, options={}):
 		tn = values['to']
 		return linktype,linklen,fn,tn,lat,long
 
-	def writeCSVLine(writer,objects,root):
-		fromdata = objects[root]
-		class_name,bustype,busflags,groupid,parent,from_name,to_name,mre,latitude,longitude = get_load_vals(fromdata)
-		writer.writerow([root,class_name,bustype,busflags,groupid,parent,from_name,to_name,mre,latitude,longitude])
-		for meter in find(objects,"groupid",root):
-			meterdata = objects[meter]
-			class_name,bustype,busflags,groupid,parent,from_name,to_name,mre,latitude,longitude = get_load_vals(meterdata)
-			writer.writerow([meter,class_name,bustype,busflags,groupid,parent,from_name,to_name,mre,latitude,longitude])
-
 	def gatherData(df,objects,root):
 		fromdata = objects[root]
 		class_name,bustype,busflags,groupid,parent,mre,latitude,longitude = get_load_vals(fromdata)
 		df.loc[len(df)]= [root,class_name,bustype,busflags,groupid,parent,"","",mre,latitude,longitude,""]
 		
-		# Check to see if there are meters in the triplex_node group
 		for meter in find(objects,"groupid",root):
 			meterdata = objects[meter]
 			class_name,bustype,busflags,groupid,parent,mre,latitude,longitude = get_load_vals(meterdata)
@@ -96,27 +83,10 @@ def convert(input_file,output_file=None, options={}):
 			else:
 				linktype = "--o"
 
-
-
 			if "to" in linkdata.keys():
 				to = linkdata["to"]
-				# if objects[to]['class'] !="triplex_node":
 				gatherData(df,objects,to)
 		return df
-
-
-	# with open(output_file,"w") as csvfile:
-	# 	csvwriter = csv.writer(csvfile)
-	# 	csvwriter.writerow(["node","class","bustype","busflags","group_id","parent","from","to","Load (W)","Lat","Long"])
-	# 	for obj in find(objects=data["objects"],property="class",value="load"):
-	# 		writeCSVLine(csvwriter,objects=data["objects"],root=obj)
-
-	# df=pd.DataFrame(columns=["node","class","bustype","busflags","group_id","parent","from","to","Load (W)","Lat","Long"])
-	# for obj in find(objects=data["objects"],property="class",value="load"):
-	# 	df2= gatherData(df,objects=data["objects"],root=obj)
-	# 	df.append(df2)
-	# df.to_csv(output_file)
-
 
 	df=pd.DataFrame(columns=["node","class","bustype","busflags","group_id","parent","from","to","Load (W)","Lat","Long","length"])
 	for obj in find(objects=data["objects"],property="bustype",value="SWING"):
