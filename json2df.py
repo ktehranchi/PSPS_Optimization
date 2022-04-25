@@ -3,12 +3,14 @@ import os
 import sys, getopt
 from datetime import datetime 
 import csv
+import pandas as pd
 
 def convert(input_file,output_file=None, options={}):
 
 	if output_file == '':
 		if input_file[-5:] == ".json":
 			output_file = input_file[:-5] + ".csv" 
+			output_file2= input_file[:-5] + "2.csv" 
 		else: 
 			output_file = input_file + ".csv"
 
@@ -17,7 +19,6 @@ def convert(input_file,output_file=None, options={}):
 		assert(data['application']=='gridlabd')
 		assert(data['version'] >= '4.2.0')
 	
-    #appends list of all objects with criteria property key = value
 	def find(objects,property,value):
 		result = []
 		for name,values in objects.items():
@@ -35,24 +36,39 @@ def convert(input_file,output_file=None, options={}):
 		return get_complex(values,prop).real
 
 	def get_load_vals(values):
-		cn = values["class"]
+		classname = values["class"]
 		bt = values["bustype"]
 		bf = values["busflags"]
-		gid = values["groupid"]
-		lat = values["latitude"]
-		long = values["longitude"]
 
+		if "groupid" in values.keys():
+			gid = values["groupid"]
+		else:
+			gid=""
+
+		if "latitude" in values.keys():
+			lat = values["latitude"]
+			long = values["longitude"]
+		else:
+			lat,long= "",""
+		
 		if values['class'] == "triplex_meter":
 			parent = values['parent']
-			fn = ""
-			tn = ""
 			mre=get_real(values,"measured_real_energy")
 		else:
-			parent,fn, tn, mre = "","","",""
+			parent, mre = "",""
 
-		return cn,bt,bf,gid,parent,fn,tn,mre,lat,long
+		return classname,bt,bf,gid,parent,mre,lat,long
 
-	def profile(writer,objects,root,pos=0):
+	def get_line_vals(values):
+		linktype = values["class"]
+		linklen = get_real(values,"length")
+		lat = values["latitude"]
+		long = values["longitude"]
+		fn = values['from']
+		tn = values['to']
+		return linktype,linklen,fn,tn,lat,long
+
+	def writeCSVLine(writer,objects,root):
 		fromdata = objects[root]
 		class_name,bustype,busflags,groupid,parent,from_name,to_name,mre,latitude,longitude = get_load_vals(fromdata)
 		writer.writerow([root,class_name,bustype,busflags,groupid,parent,from_name,to_name,mre,latitude,longitude])
@@ -61,14 +77,50 @@ def convert(input_file,output_file=None, options={}):
 			class_name,bustype,busflags,groupid,parent,from_name,to_name,mre,latitude,longitude = get_load_vals(meterdata)
 			writer.writerow([meter,class_name,bustype,busflags,groupid,parent,from_name,to_name,mre,latitude,longitude])
 
-			# if "to" in meterdata.keys():
-			# 	to = meterdata["to"]
-			# 	todata = objects[to]
-			# 	profile(writer,objects,to,pos+linklen)
+	def gatherData(df,objects,root):
+		fromdata = objects[root]
+		class_name,bustype,busflags,groupid,parent,mre,latitude,longitude = get_load_vals(fromdata)
+		df.loc[len(df)]= [root,class_name,bustype,busflags,groupid,parent,"","",mre,latitude,longitude,""]
+		
+		# Check to see if there are meters in the triplex_node group
+		for meter in find(objects,"groupid",root):
+			meterdata = objects[meter]
+			class_name,bustype,busflags,groupid,parent,mre,latitude,longitude = get_load_vals(meterdata)
+			df.loc[len(df)]= [meter,class_name,bustype,busflags,groupid,parent,"","",mre,latitude,longitude,""]
 
-	with open(output_file,"w") as csvfile:
-		csvwriter = csv.writer(csvfile)
-		csvwriter.writerow(["node","class","bustype","busflags","group_id","parent","from","to","Load (W)","Lat","Long"])
-		#obj is the object that met the find criteria
-		for obj in find(objects=data["objects"],property="class",value="load"):
-			profile(csvwriter,objects=data["objects"],root=obj)
+		for link in find(objects,"from",root):
+			linkdata = objects[link]
+			if "line" in get_string(linkdata,"class"):
+				linktype,linklen,fn,tn,lat,long= get_line_vals(linkdata)
+				df.loc[len(df)]= [link,linktype,"","","","",fn,tn,"",lat,long,linklen]
+			else:
+				linktype = "--o"
+
+
+
+			if "to" in linkdata.keys():
+				to = linkdata["to"]
+				# if objects[to]['class'] !="triplex_node":
+				gatherData(df,objects,to)
+		return df
+
+
+	# with open(output_file,"w") as csvfile:
+	# 	csvwriter = csv.writer(csvfile)
+	# 	csvwriter.writerow(["node","class","bustype","busflags","group_id","parent","from","to","Load (W)","Lat","Long"])
+	# 	for obj in find(objects=data["objects"],property="class",value="load"):
+	# 		writeCSVLine(csvwriter,objects=data["objects"],root=obj)
+
+	# df=pd.DataFrame(columns=["node","class","bustype","busflags","group_id","parent","from","to","Load (W)","Lat","Long"])
+	# for obj in find(objects=data["objects"],property="class",value="load"):
+	# 	df2= gatherData(df,objects=data["objects"],root=obj)
+	# 	df.append(df2)
+	# df.to_csv(output_file)
+
+
+	df=pd.DataFrame(columns=["node","class","bustype","busflags","group_id","parent","from","to","Load (W)","Lat","Long","length"])
+	for obj in find(objects=data["objects"],property="bustype",value="SWING"):
+		df2= gatherData(df,objects=data["objects"],root=obj)
+		df.append(df2)
+	df.to_csv(output_file,index=False)
+	return df
