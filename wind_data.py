@@ -15,8 +15,8 @@ df.insert(3, 'Month', pd.DatetimeIndex(df['Date']).month)
 df.insert(4, 'Day', pd.DatetimeIndex(df['Date']).day)
 df.insert(5, 'Year', 2020)
 
-# average wind speed by day
-df_new = df.groupby(pd.Grouper(key='Date')).mean() # change to max?
+# max wind speed by day
+df_new = df.groupby(pd.Grouper(key='Date')).max()
 df_new.insert(0, 'Date', df_new.index)
 
 PGE_2020 = pd.read_csv('PGE_2020.csv')
@@ -29,14 +29,12 @@ for i in PGE_2020.index:
     lat = PGE_2020['Latitude'][i]
     long = PGE_2020['Longitude'][i]
     date = PGE_2020['Date'][i]
-    # need to match date to date in df_new and get wind speed
-    #wind_speed = df_new.loc[date, 'wind_speed[m/s]'] ??????????
+    date = date.date()
+
+    wind_speed = df_new.loc[df_new['Date'] == date]['wind_speed[m/s]'].values[0]
+    PGE_2020['Wind Speed'][i] = wind_speed
 
 
-    #search lat and long in API
-
-    #wind_speed = API(date, lat, long)
-    #PGE_2021['Wind Speed'][i] = wind_speed
 
 
 
