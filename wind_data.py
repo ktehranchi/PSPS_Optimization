@@ -25,6 +25,7 @@ PGE_2020 = PGE_2020[['Date', 'Year', 'Month', 'Day', 'Time', 'Latitude', 'Longit
 df_date = PGE_2020[['Month', 'Day', 'Year']]
 PGE_2020['Date']= pd.to_datetime(df_date)
 
+#iterate
 for i in PGE_2020.index:
     lat = PGE_2020['Latitude'][i]
     long = PGE_2020['Longitude'][i]
