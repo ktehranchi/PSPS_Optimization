@@ -10,6 +10,8 @@ import xarray as xr
 from numpy import copy
 import pyomo.environ as pyo
 import time
+from meteostat import Point, Hourly
+
 
 share = os.getenv("GLD_ETC")
 if not share:
@@ -82,7 +84,11 @@ def importFireRiskData(data,fireForecastStartDateDT):
     ### Loading all sevendays of fireRisk as XARRAY
     firerisk7d=np.empty(shape=len(latlongs))
     for day in range(1,8):
-        fr=geodata_firerisk.apply(data=latlongs,options=dict(day=day,date=fireForecastStartDate,type='fpi'))
+        fireForecastDate = (fireForecastStartDateDT + timedelta(days=day-1)).strftime('%Y%m%d')
+        fr=geodata_firerisk.apply(data=latlongs,options=dict(day=day,date=fireForecastDate,type='fpi'))
+        #add segment on if type == fpi then cut off all vals >= 248 (set to zero)
+        #if type == lfp then cut off vals over 2000 (set to zero)
+        # if type == fsp then cut off above 200 (set to zero)
         firerisk7d= np.column_stack((firerisk7d, fr))
     firerisk7d=firerisk7d[:,1:]
     firerisk7dx= xr.DataArray(firerisk7d, dims=['index','time_fireRisk'])
@@ -163,15 +169,15 @@ def importWeatherForecastData(data,dataX):
     print("Weather Data import time: ", end-start)
     return dataX
 
-def importHistoricalWeatherData(data,dataX,dateDT):
+def importHistoricalWeatherDataNSRDB(data,dataX,dateDT):
     print("=======Importing Historical Weather Data============")
-    start=time.time()
+    start_stopwatch=time.time()
 
     latlongs= data[['lat','long']]
     latlongs=latlongs.astype(float)
 
-    # dateDT= datetime(year=2018,month=12,day=14,hour=8)
-    # lat,long= 38.25552587,-122.348129
+    # dateDT=  datetime(year=2020,month=10,day=15,hour=0)
+    lat,long= 38.25552587,-122.348129
 
     time_Coords= pd.concat(ns.getyear(dateDT.year,lat,long)['DataFrame'])['wind_speed[m/s]']
     mask = (time_Coords.index > dateDT) & (time_Coords.index <= (dateDT + timedelta(days=7)))
@@ -194,10 +200,49 @@ def importHistoricalWeatherData(data,dataX,dateDT):
     dataX.wind.data= dataX.wind.data.astype(float)
     dataX= dataX.assign_coords({'time_wind':time_Coords.tolist()})
 
-    end= time.time()
-    print("Weather Data import time: ", end-start)
+    end_stopwatch= time.time()
+    print("Weather Data import time: ", end_stopwatch-start_stopwatch)
     return dataX
 
+
+def importHistoricalWeatherDataMeteostat(data,dataX,dateDT):
+    print("=======Importing Historical Weather Data============")
+    start_stopwatch=time.time()
+
+    latlongs= data[['lat','long']]
+    latlongs=latlongs.astype(float)
+
+    # dateDT=  datetime(year=2020,month=10,day=15,hour=0)
+    lat,long= 38.25552587,-122.348129
+    geopoint = Point(lat,long)
+    start= dateDT
+    end= dateDT +timedelta(days=8)
+
+    time_Coords = Hourly(geopoint, start, end)
+    time_Coords = pd.DataFrame(time_Coords.fetch())['wspd']
+
+    Weather_forecast= np.ones(shape=len(time_Coords))
+    for lat,long in latlongs.itertuples(index=False):
+        if np.isnan(lat):
+            new=np.zeros_like(time_Coords)
+            Weather_forecast= np.row_stack((Weather_forecast, new))
+        else:
+            # wind= pd.concat(ns.getyear(dateDT.year,lat,long)['DataFrame'])['wind_speed[m/s]']
+            # mask = (wind.index > dateDT) & (wind.index <= (dateDT + timedelta(days=7)))
+            # wind= wind.loc[mask]
+            wind = Hourly(geopoint, start, end)
+            wind = pd.DataFrame(wind.fetch())['wspd']
+            windspeed= wind.values  
+            Weather_forecast= np.row_stack((Weather_forecast, windspeed))
+    Weather_forecast= Weather_forecast[1:,:]
+    WindX= xr.DataArray(Weather_forecast,dims=['index','time_wind'])
+    dataX['wind']= WindX
+    dataX.wind.data= dataX.wind.data.astype(float)
+    dataX= dataX.assign_coords({'time_wind':time_Coords.tolist()})
+
+    end_stopwatch= time.time()
+    print("Weather Data import time: ", end_stopwatch-start_stopwatch)
+    return dataX
 
 def aggregateAreaData(dataX):
     ### Combine the time axes for fireRisk forecast and the wind forecast
@@ -290,32 +335,48 @@ def optimizeShutoff(areaDataX,resilienceMetricOption,fireRiskAlpha):
 ########################
 ### Run Program ########
 ########################
-path= os.path.join(os.getcwd(),'example/ieee123.json')
-pathPGE = '/Users/kamrantehranchi/Documents/GradSchool/Research/PSPS_Optimization_EREproject/Data/NapaFeeders'
 
+#Routine for IEEE123 Data
+IEEEpath= os.path.join(os.getcwd(),'example/ieee123.json')
+# dataStartDate = datetime.today() +timedelta(days=-1)
 dataStartDate = datetime(year=2021,month=10,day=15,hour=0)
-# dataStartDate = datetime.today()
 
-#Load Data
-# data= loadJsonData(path)
-data = loadPGEData(pathPGE)
-
-#Modify Data
+# #Load Data
+# data= loadJsonData(IEEEpath)
+# #Modify Data
 # data = assignGroupID_json(data) #do not need for historical GIS based analysis data
-data, dataX = importFireRiskData(data,dataStartDate)
+# data, dataX = importFireRiskData(data,dataStartDate)
 
 # dataX = assignLoadID(dataX) #do not need for historical GIS based analysis data
 # dataX = assignCustomerImpact(dataX) #do not need for historical GIS based analysis data
-# dataX = importWeatherForecastData(data,dataX) #do not need for historical GIS based analysis data
-dataX = importHistoricalWeatherData(data,dataX,dataStartDate)
+# # dataX = importWeatherForecastData(data,dataX) #do not need for historical GIS based analysis data
+# dataX = importHistoricalWeatherDataMeteostat(data,dataX,dataStartDate)
+# areaDataX = aggregateAreaData(dataX)
+# #Run optimization
+# resilienceMetricOption= 0 #1 for KWh lost, 0 for customer-hours
+# fireRiskAlpha=40 #higher number means you are more willing to accept fire risk
+# model, results= optimizeShutoff(areaDataX, resilienceMetricOption,fireRiskAlpha)
+# ###END
 
+
+
+#Routine for Historical Event Data
+pathPGE = '/Users/kamrantehranchi/Documents/GradSchool/Research/PSPS_Optimization_EREproject/Data/NapaFeeders'
+dataStartDate = datetime(year=2021,month=10,day=15,hour=0)
+#Load Data
+data = loadPGEData(pathPGE)
+#Modify Data
+data, dataX = importFireRiskData(data,dataStartDate)
+dataX = importHistoricalWeatherDataMeteostat(data,dataX,dataStartDate)
 areaDataX = aggregateAreaData(dataX)
 
 #Run optimization
 resilienceMetricOption= 0 #1 for KWh lost, 0 for customer-hours
 fireRiskAlpha=40 #higher number means you are more willing to accept fire risk
 model, results= optimizeShutoff(areaDataX, resilienceMetricOption,fireRiskAlpha)
+##END
 
+######
 
 
 ##############
