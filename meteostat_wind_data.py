@@ -1,53 +1,46 @@
 import pandas as pd
+from datetime import datetime, timedelta
+from meteostat import Hourly, Point, Stations
 
-# Import Meteostat library and dependencies
-from datetime import datetime
-from meteostat import Hourly, Point
+#Load Data
+PGE = pd.read_csv('Data/PGE_fire_incident_reportsAll.csv')
+PGE_vegFire = PGE[PGE.material_at_origin.str.contains('Vegetation') | PGE.contributing_factor.str.contains('High Winds') | PGE.contributing_factor.str.contains('Weather')]
+PGE_vegFire['datetime'] = pd.to_datetime(PGE_vegFire[['year','month','day','hour','minute']])
 
-# ############TEST#####################
-# # Set time period
-# start = datetime(2020, 12, 22, 10, 0)
-# #end = datetime(2018, 12, 31, 23, 59)
-# end = datetime(2020, 12, 22, 11, 0)
-# vancouver = Point(39.16631,-122.142)
-# # Get hourly data
-# data = Hourly(vancouver, start, end)
-# data = data.fetch()
-# #
-# # Print DataFrame
-# print(data)
-
-
-
-#########################
-PGE = pd.read_csv('PGE_fire_incident_reportsAll.csv')
-PGE = PGE[['date', 'year', 'month', 'day', 'time', 'hour', 'minute', 'latitude', 'longitude']]
-df_date = PGE[['month', 'day', 'year']]
-PGE['date']= pd.to_datetime(df_date)
-
+#Import windspeeds
 wind_speed_vector = []
-for i in PGE.index:
-    lat = PGE['latitude'][i]
-    long = PGE['longitude'][i]
-    year = PGE['year'][i]
-    month = PGE['month'][i]
-    day = PGE['day'][i]
-    date = PGE['date'][i]
-    hour = PGE['hour'][i]
-    minute = PGE['minute'][i]
+wind_speed_max_vector = []
 
-    start = datetime(year, month, day, hour, 0)
-    end = datetime(year, month, day, hour, 0)
-    location = Point(lat, long)
-    # Get hourly data
-    data = Hourly(location, start, end)
+for i in PGE_vegFire.index:
+    lat = PGE_vegFire['latitude'][i]
+    long = PGE_vegFire['longitude'][i]
+    start = PGE_vegFire['datetime'][i]+ timedelta(hours=-5)
+    end = PGE_vegFire['datetime'][i] 
+
+    # location = Point(lat, long)
+    # # Get hourly data
+    # data = Hourly(location, start, end)
+    # data = data.fetch()
+
+    stations = Stations()
+    stations = stations.nearby(lat,long)
+    station = stations.fetch(2)
+    data = Hourly(station, start, end)
     data = data.fetch()
+
+
     if len(data['wspd'].values) == 0:
         wind_speed = 'no data'
     else:
-        wind_speed = data['wspd'].values[0]
+        data= data.loc[data.index.get_level_values(0)[0]] #filter out the first returned station data
+        wind_speed = data.wspd.last('1h')[0]
+        wind_speed_max = data.wspd.max()
     wind_speed_vector.append(wind_speed)
+    wind_speed_max_vector.append(wind_speed_max)
 
 
-PGE['Wind Speed'] = wind_speed_vector
-PGE.to_csv('PGE_new.csv')
+PGE_vegFire['wind_speed'] = wind_speed_vector
+PGE_vegFire['wind_speed_max'] = wind_speed_max_vector
+PGE_vegFire.to_csv('Data/PGE_VegFire_windData.csv')
+
+
